@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent Memory Demo — NimbusCart Support</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1d212a; --border: #2a2f3a;
+    --text: #e8eaed; --muted: #8a90a0; --accent: #6ea8ff; --accent2: #7ee0b8;
+    --warn: #f2a65a; --user-bubble: #2a3a52; --bot-bubble: #23262f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  select, button, input {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; font-size: 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #08101f; font-weight: 600; border: none; }
+  button.danger { color: #ffb4b4; }
+  main { flex: 1; display: flex; overflow: hidden; }
+  .chat-col { flex: 1.2; display: flex; flex-direction: column; border-right: 1px solid var(--border); min-width: 320px; }
+  .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 80%; padding: 10px 13px; border-radius: 12px; font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: var(--user-bubble); }
+  .msg.bot { align-self: flex-start; background: var(--bot-bubble); }
+  .msg.team { align-self: stretch; background: #23301f; border: 1px solid #3a5233; }
+  .msg .role { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 4px; }
+  .trace { font-size: 11px; color: var(--accent2); margin-top: 6px; opacity: .85; }
+  .input-row { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
+  .input-row input[type=text] { flex: 1; padding: 10px 12px; font-size: 13px; }
+  .panels-col { flex: 1; display: grid; grid-template-rows: 1fr 1fr 1fr 1fr; overflow: hidden; min-width: 340px; }
+  .panel { border-bottom: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; background: var(--panel); }
+  .panel h2 { font-size: 12px; margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--border); display:flex; justify-content: space-between; align-items:center;}
+  .panel h2 .tag { font-size: 10px; color: var(--muted); font-weight: 400; }
+  .panel-body { flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 12px; }
+  .item { padding: 6px 8px; margin-bottom: 6px; background: var(--panel2); border-radius: 6px; border-left: 3px solid var(--border); }
+  .item.hit { border-left-color: var(--accent2); }
+  .item .meta { color: var(--muted); font-size: 10px; margin-top: 2px; }
+  .empty { color: var(--muted); font-style: italic; font-size: 11.5px; }
+  .badge { display:inline-block; padding: 1px 6px; border-radius: 10px; font-size: 10px; background:#2a2f3a; color:var(--muted); margin-left:6px;}
+  .stm-turn { padding: 3px 0; font-size: 11.5px; }
+  .stm-turn b { color: var(--accent); }
+  .board-agent-triage { border-left-color: var(--warn); }
+  .board-agent-billing_agent { border-left-color: #f27a7a; }
+  .board-agent-tech_agent { border-left-color: #7aa8f2; }
+  .board-agent-supervisor { border-left-color: var(--accent2); }
+  .board-agent-memory-system { border-left-color: #b98af2; }
+  footer { padding: 6px 16px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>NimbusCart Support — Agent Memory Demo</h1>
+    <div class="sub">Local LLMs only (Ollama) &middot; user: <b id="userLabel">alex_rivera</b></div>
+  </div>
+  <div class="controls">
+    <label style="font-size:11px; color:var(--muted);">Memory mode</label>
+    <select id="memoryMode">
+      <option value="full">Full memory (short+long+episodic)</option>
+      <option value="none">No memory (stateless baseline)</option>
+    </select>
+    <button id="endSessionBtn">End session &amp; log ticket</button>
+    <button id="escalateBtn">Simulate complex ticket (multi-agent)</button>
+    <button id="resetBtn" class="danger">Reset all memory</button>
+  </div>
+</header>
+
+<main>
+  <div class="chat-col">
+    <div class="messages" id="messages"></div>
+    <div class="input-row">
+      <input type="text" id="msgInput" placeholder="Type as the customer… e.g. 'my soundbar arrived cracked'">
+      <button class="primary" id="sendBtn">Send</button>
+    </div>
+  </div>
+
+  <div class="panels-col">
+    <div class="panel">
+      <h2>🧠 Short-term <span class="tag">in-process · this session only</span></h2>
+      <div class="panel-body" id="stmBody"><div class="empty">No active turns yet.</div></div>
+    </div>
+    <div class="panel">
+      <h2>📇 Long-term <span class="tag">SQLite · retrieved by similarity</span></h2>
+      <div class="panel-body" id="ltmBody"><div class="empty">No facts stored yet.</div></div>
+    </div>
+    <div class="panel">
+      <h2>🕘 Episodic <span class="tag">timestamped past tickets</span></h2>
+      <div class="panel-body" id="epBody"><div class="empty">No episodes logged yet.</div></div>
+    </div>
+    <div class="panel">
+      <h2>🤝 Shared / blackboard <span class="tag">multi-agent coordination</span></h2>
+      <div class="panel-body" id="sharedBody"><div class="empty">No multi-agent ticket run yet.</div></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Green-bordered items in Long-term / Episodic panels = the facts/cases the agent actually retrieved and used for the last reply.
+</footer>
+
+<script>
+const sessionId = sessionStorage.getItem('mem_demo_session') || (() => {
+  const id = 'sess-' + Math.random().toString(36).slice(2, 10);
+  sessionStorage.setItem('mem_demo_session', id);
+  return id;
+})();
+const userId = 'alex_rivera';
+
+const messagesEl = document.getElementById('messages');
+const msgInput = document.getElementById('msgInput');
+const memoryModeSel = document.getElementById('memoryMode');
+
+function addMsg(role, text, extraClass, traceHtml) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + (extraClass || role);
+  const roleLabel = role === 'user' ? 'Customer' : (extraClass === 'team' ? 'Support Team (final)' : 'Aria');
+  div.innerHTML = `<div class="role">${roleLabel}</div>${escapeHtml(text)}` + (traceHtml || '');
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function sendMessage() {
+  const text = msgInput.value.trim();
+  if (!text) return;
+  msgInput.value = '';
+  addMsg('user', text);
+  const mode = memoryModeSel.value;
+  const placeholder = document.createElement('div');
+  placeholder.className = 'msg bot';
+  placeholder.innerHTML = '<div class="role">Aria</div>…thinking';
+  messagesEl.appendChild(placeholder);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  const res = await fetch('/api/chat', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({session_id: sessionId, user_id: userId, message: text, memory_mode: mode})
+  });
+  const data = await res.json();
+  placeholder.remove();
+
+  let traceHtml = '';
+  if (mode === 'full') {
+    const bits = [];
+    if (data.trace.long_term_hits.length) bits.push(`used ${data.trace.long_term_hits.length} long-term fact(s)`);
+    if (data.trace.episodic_hits.length) bits.push(`recalled ${data.trace.episodic_hits.length} similar past ticket(s)`);
+    if (data.trace.new_long_term_fact) bits.push(`learned new fact → long-term memory`);
+    if (bits.length) traceHtml = `<div class="trace">🧩 ${bits.join(' · ')}</div>`;
+  } else {
+    traceHtml = `<div class="trace" style="color:var(--warn)">⚠️ stateless: no memory of prior turns or history</div>`;
+  }
+  addMsg('bot', data.reply, 'bot', traceHtml);
+  refreshState(data.trace);
+}
+
+async function endSession() {
+  const res = await fetch(`/api/end_session?session_id=${sessionId}&user_id=${userId}`, {method: 'POST'});
+  const data = await res.json();
+  if (data.logged) {
+    addMsg('bot', `Ticket ${data.logged.ticket_id} logged to episodic memory: "${data.logged.issue}" → "${data.logged.resolution}" (${data.logged.outcome})`, 'bot');
+  }
+  refreshState();
+}
+
+async function escalate() {
+  const text = msgInput.value.trim() || "My order arrived broken AND I was charged twice for it.";
+  msgInput.value = '';
+  addMsg('user', text);
+  const res = await fetch('/api/escalation', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({user_id: userId, message: text})
+  });
+  const data = await res.json();
+  addMsg('bot', data.final_reply, 'team');
+  refreshState();
+}
+
+async function resetAll() {
+  if (!confirm('Wipe all long-term, episodic and shared memory (re-seeds demo data)?')) return;
+  await fetch(`/api/reset?session_id=${sessionId}`, {method: 'POST'});
+  messagesEl.innerHTML = '';
+  refreshState();
+}
+
+function renderStm(body) {
+  const el = document.getElementById('stmBody');
+  if (!body.turns.length) { el.innerHTML = '<div class="empty">No active turns yet.</div>'; return; }
+  let html = '';
+  if (body.objective) html += `<div class="item">🎯 Objective: ${escapeHtml(body.objective)}</div>`;
+  html += body.turns.map(t => `<div class="stm-turn"><b>${t.role}:</b> ${escapeHtml(t.content).slice(0,140)}</div>`).join('');
+  el.innerHTML = html;
+}
+
+function renderLtm(rows, hitFacts) {
+  const el = document.getElementById('ltmBody');
+  if (!rows.length) { el.innerHTML = '<div class="empty">No facts stored yet.</div>'; return; }
+  el.innerHTML = rows.map(r => {
+    const isHit = hitFacts && hitFacts.includes(r.fact);
+    return `<div class="item ${isHit ? 'hit' : ''}">${escapeHtml(r.fact)}<div class="meta">${r.category} · used ${r.use_count}x</div></div>`;
+  }).join('');
+}
+
+function renderEp(rows, hitIssues) {
+  const el = document.getElementById('epBody');
+  if (!rows.length) { el.innerHTML = '<div class="empty">No episodes logged yet.</div>'; return; }
+  el.innerHTML = rows.map(r => {
+    const isHit = hitIssues && hitIssues.includes(r.issue);
+    return `<div class="item ${isHit ? 'hit' : ''}"><b>${escapeHtml(r.issue)}</b><div class="meta">→ ${escapeHtml(r.resolution)}</div><div class="meta">${r.category} · ${r.outcome} · ${r.timestamp}</div></div>`;
+  }).join('');
+}
+
+function renderShared(rows) {
+  const el = document.getElementById('sharedBody');
+  if (!rows.length) { el.innerHTML = '<div class="empty">No multi-agent ticket run yet.</div>'; return; }
+  el.innerHTML = rows.slice().reverse().map(r => (
+    `<div class="item board-agent-${r.agent}"><span class="badge">${r.ticket_id}</span> <b>${r.agent}</b> · ${r.entry_type}<div class="meta">${escapeHtml(r.content).slice(0,200)}</div></div>`
+  )).join('');
+}
+
+async function refreshState(trace) {
+  const res = await fetch(`/api/state?session_id=${sessionId}&user_id=${userId}`);
+  const data = await res.json();
+  renderStm(data.short_term);
+  const hitFacts = trace && trace.long_term_hits ? trace.long_term_hits.map(h => h.fact) : [];
+  const hitIssues = trace && trace.episodic_hits ? trace.episodic_hits.map(h => h.issue) : [];
+  renderLtm(data.long_term, hitFacts);
+  renderEp(data.episodic, hitIssues);
+  renderShared(data.shared_recent);
+}
+
+document.getElementById('sendBtn').onclick = sendMessage;
+msgInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+document.getElementById('endSessionBtn').onclick = endSession;
+document.getElementById('escalateBtn').onclick = escalate;
+document.getElementById('resetBtn').onclick = resetAll;
+
+refreshState();
+</script>
+</body>
+</html>
